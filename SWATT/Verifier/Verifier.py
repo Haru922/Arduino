@@ -8,11 +8,11 @@ import random
 
 ITER_CNT = 664000
 BAUDRATE = 9600
-VERIFY_TIMEOUT = 42
 WRITE_TIMEOUT = 3
 MEMORY_ORIGIN = 'origin'
 PERFORMANCE_MEASURE = 100
 PERFORMANCE_RESULT = 'verify_performance_result'
+VERIFY_TIME_THRESHOLD = 5.5
 
 REQUEST = {0:'quit',1:'ping',2:'verify',3:'dump',4:'performance'}
 
@@ -70,7 +70,7 @@ class Verifier():
         print('PROVER > CHECKSUM: ',ret_checksum)
         elapsed_time = time.time()-start_time
         print(f'VERIFIER > ELAPSED TIME {elapsed_time:.3f}')
-        print('\nVERIFIER > Verified.\n' if checksum == ret_checksum and elapsed_time < VERIFY_TIMEOUT else '\nVERIFIER > Not Verified.\n')
+        print('\nVERIFIER > Verified.\n' if checksum == ret_checksum and elapsed_time < VERIFY_TIME_THRESHOLD else '\nVERIFIER > Not Verified.\n')
         if performance:
             with open(PERFORMANCE_RESULT,'a') as f:
                 f.write(f'{elapsed_time:.3f}\n');
