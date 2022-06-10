@@ -4,12 +4,12 @@ import os
 import sys
 import time
 import serial
-import random
 
 ITER_CNT = 664000
 BAUDRATE = 9600
 WRITE_TIMEOUT = 3
 MEMORY_ORIGIN = 'origin'
+DUMP_PARTITION_CNT = 7
 PERFORMANCE_MEASURE = 100
 PERFORMANCE_RESULT = 'verify_performance_result'
 VERIFY_TIME_THRESHOLD = 5.5
@@ -43,7 +43,7 @@ class Verifier():
 
     def dump(self):
         memory_dump = []
-        for i in range(7):
+        for i in range(DUMP_PARTITION_CNT):
             memory_dump.append(self.serial.readline()[:-2].decode('utf8'))
         with open(MEMORY_ORIGIN,'w') as f:
             f.writelines(','.join(memory_dump))
@@ -66,14 +66,15 @@ class Verifier():
         checksum = self.get_checksum(seed)
         print('VERIFIER > CHECKSUM: ',checksum)
         ret_checksum = self.serial.readline().decode('utf8').split(' ')
+        elapsed_time = time.time()-start_time
         ret_checksum = [int(checksum) for checksum in ret_checksum[:-1]]
         print('PROVER > CHECKSUM: ',ret_checksum)
-        elapsed_time = time.time()-start_time
         print(f'VERIFIER > ELAPSED TIME {elapsed_time:.3f}')
-        print('\nVERIFIER > Verified.\n' if checksum == ret_checksum and elapsed_time < VERIFY_TIME_THRESHOLD else '\nVERIFIER > Not Verified.\n')
+        result = 'Verified' if checksum == ret_checksum and elapsed_time < VERIFY_TIME_THRESHOLD else 'Not Verified'
+        print(f'\nVERIFIER > {result}.\n')
         if performance:
             with open(PERFORMANCE_RESULT,'a') as f:
-                f.write(f'{elapsed_time:.3f}\n');
+                f.write(f'{result},{elapsed_time:.3f}\n');
 
     def shuffle(self,i,j):
         i = (i+1)%256
@@ -136,7 +137,7 @@ class Verifier():
 
 if __name__=='__main__':
     if 1 >= len(sys.argv):
-        print('usage: python3 verifier.py SERIAL_PORT')
+        print('usage: python3 Verifier.py SERIAL_PORT')
     else:
         verifier = Verifier(sys.argv[1])
         verifier.run()
