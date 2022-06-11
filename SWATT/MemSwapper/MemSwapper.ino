@@ -1,45 +1,44 @@
 #define KEY_LEN 10 
+#define ADDRESS_LIMIT 0xffff
 
 // Due to the result of Coupon Collector's Problem
 #define ITER_CNT 664000 // ITER_CNT > (2 * 32000ln32000)
 
-#define ADDRESS_LIMIT 0xffff
 
 uint8_t checksum_vector[8];
 uint8_t S[256];
 
-void setup() {
-    Serial.begin(9600);
-}
 
-void swap(uint8_t *b1, uint8_t *b2) {
-    uint8_t tmp = *b1;
-    *b1 = *b2;
-    *b2 = tmp;
-}
+static void
+verify_memory () {
+    uint8_t i;
+    char seed[KEY_LEN+1];
+    uint8_t key[KEY_LEN+1];
 
-void dump_memory() {
-    uint32_t i=0x0000;
-    Serial.print(pgm_read_byte(i));
-    for (i=0x0001; i<=ADDRESS_LIMIT; i++) {
-        if (!(i%10000))
-            Serial.println();
-        else
-            Serial.print(',');
-        Serial.print(pgm_read_byte(i));
+    // Receive the key from the verifier
+    String str = Serial.readString();
+    str.toCharArray(seed, KEY_LEN+1);
+    for (i=0; i<KEY_LEN+1; i++)
+        key[i] = String(seed[i]).toInt();
+    Serial.print(F("KEY: "));
+    Serial.println(seed);
+
+    // RC4 Key-sheduling algorithm
+    rc4_KSA(key);
+
+    // Calculate the eight 8-bit checksum values
+    get_checksum();
+
+    // Send checksum vector to the verifier
+    for (i=0; i<8; i++) {
+        Serial.print(checksum_vector[i]);
+        Serial.print(' ');
     }
     Serial.println();
 }
 
-void rc4_PRGA(uint8_t *i, uint8_t *j) {
-    // RC4 PRGA(Pseudo-random generation algorithm) PART-1
-    *i += 1;
-    *j = (*j+S[*i])%256;
-    swap(&S[*i],&S[*j]);
-    // RC4 PRGA PART-2: S[(S[i]+S[j])%256];
-}
-
-void rc4_KSA(uint8_t *key) {
+static void
+rc4_KSA (uint8_t *key) {
     uint16_t i,j;
     // RC4 KSA(Key-scheduling algorithm)
     for (i=0; i<256; i++)
@@ -50,7 +49,18 @@ void rc4_KSA(uint8_t *key) {
     }
 }
 
-void get_checksum() {
+static void
+rc4_PRGA (uint8_t *i,
+          uint8_t *j) {
+    // RC4 PRGA(Pseudo-random generation algorithm) PART-1
+    *i += 1;
+    *j = (*j+S[*i])%256;
+    swap(&S[*i],&S[*j]);
+    // RC4 PRGA PART-2: S[(S[i]+S[j])%256];
+}
+
+static void
+get_checksum () {
     uint8_t i,j;
     uint8_t k;
     uint32_t cnt;
@@ -81,7 +91,7 @@ void get_checksum() {
         // Construct address for memory read
         addr = ((cur_rc4<<8)+checksum_vector[(k+7)%8]);
 
-        // Swap memory address
+        // Change memory address
         if (0x0922 > addr)
             addr += 0x0922;
 
@@ -96,34 +106,35 @@ void get_checksum() {
     }
 }
 
-void verify_memory() {
-    uint8_t i;
-    char seed[KEY_LEN+1];
-    uint8_t key[KEY_LEN+1];
-
-    // Receive the key from the verifier
-    String str = Serial.readString();
-    str.toCharArray(seed, KEY_LEN+1);
-    for (i=0; i<KEY_LEN+1; i++)
-        key[i] = String(seed[i]).toInt();
-    Serial.print(F("KEY: "));
-    Serial.println(seed);
-
-    // RC4 Key-sheduling algorithm
-    rc4_KSA(key);
-
-    // Calculate the eight 8-bit checksum values
-    get_checksum();
-
-    // Send checksum vector to the verifier
-    for (i=0; i<8; i++) {
-        Serial.print(checksum_vector[i]);
-        Serial.print(' ');
+static void
+dump_memory () {
+    uint32_t i=0x0000;
+    Serial.print(pgm_read_byte(i));
+    for (i=0x0001; i<=ADDRESS_LIMIT; i++) {
+        if (!(i%10000))
+            Serial.println();
+        else
+            Serial.print(',');
+        Serial.print(pgm_read_byte(i));
     }
     Serial.println();
 }
 
-void loop() {
+static void
+swap (uint8_t *b1,
+      uint8_t *b2) {
+    uint8_t tmp = *b1;
+    *b1 = *b2;
+    *b2 = tmp;
+}
+
+void
+setup () {
+    Serial.begin(9600);
+}
+
+void
+loop () {
     if (Serial.available() > 0) {
         String arg = Serial.readString();
         if (arg.equalsIgnoreCase("ping"))

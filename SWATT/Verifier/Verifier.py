@@ -1,27 +1,28 @@
 #!/usr/bin/env python3
 
+
 import os
 import sys
 import time
 import serial
 
-# Due to the result of the Coupon Collector's Problem
-ITER_CNT = 664000 # ITER_CNT > (2 * 32000ln32000)
 
 BAUDRATE = 9600
 WRITE_TIMEOUT = 3
-
-# Verifier knows the expected memory contents
-MEMORY_ORIGIN = 'origin' # Prover's original memory contents
-
 DUMP_PARTITION_CNT = 7
 PERFORMANCE_MEASURE = 100
 PERFORMANCE_RESULT = 'verify_performance_result'
 
+REQUEST = {0:'quit',1:'ping',2:'verify',3:'dump',4:'performance'}
+
+# Due to the result of the Coupon Collector's Problem
+ITER_CNT = 664000 # ITER_CNT > (2 * 32000ln32000)
+
+# Verifier knows the expected memory contents
+MEMORY_ORIGIN = 'origin' # Prover's original memory contents
+
 # Prover verification time threshold
 VERIFY_TIME_THRESHOLD = 5.5
-
-REQUEST = {0:'quit',1:'ping',2:'verify',3:'dump',4:'performance'}
 
 
 class Verifier():
@@ -30,42 +31,7 @@ class Verifier():
         self.S = [0]*256
         self.origin = None
 
-    def request(self, req):
-        if 'performance' == req:
-            self.check_origin()
-            for i in range(PERFORMANCE_MEASURE):
-                self.serial.write('verify'.encode('utf8'))
-                print(f"PROVER > {self.serial.readline().decode('utf8')}")
-                self.verify(performance=True)
-        elif 'verify' == req:
-            self.check_origin()
-            self.serial.write(req.encode('utf8'))
-            print(f"PROVER > {self.serial.readline().decode('utf8')}")
-            self.verify()
-        else:
-            self.serial.write(req.encode('utf8'))
-            print(f"PROVER > {self.serial.readline().decode('utf8')}")
-            if 'dump' == req:
-                self.dump()
-
-    def dump(self):
-        memory_dump = []
-        for i in range(DUMP_PARTITION_CNT):
-            memory_dump.append(self.serial.readline()[:-2].decode('utf8'))
-        with open(MEMORY_ORIGIN,'w') as f:
-            f.writelines(','.join(memory_dump))
-
-    def check_origin(self):
-        if not os.path.isfile(MEMORY_ORIGIN):
-            self.request('dump')
-
-    def get_origin(self):
-        with open(MEMORY_ORIGIN,'r') as f:
-            self.origin = f.readline().split(',')
-        self.origin = [int(content) for content in self.origin]
-
     def verify(self,performance=False):
-
         # Use current timestamp for generating key(length=10)
         seed = str(int(time.time()))
         print(f"VERIFIER > KEY: {seed}")
@@ -95,18 +61,9 @@ class Verifier():
         result = 'Verified' if checksum == ret_checksum and elapsed_time < VERIFY_TIME_THRESHOLD else 'Not Verified'
         print(f'\nVERIFIER > {result}.\n')
 
-        # For performance measure
         if performance:
             with open(PERFORMANCE_RESULT,'a') as f:
                 f.write(f'{result},{elapsed_time:.3f}\n');
-
-    def rc4_PRGA(self,i,j):
-        # RC4 PRGA(Pseudo-random generation algorithm) PART-1
-        i = (i+1)%256
-        j = (j+self.S[i])%256
-        self.S[i],self.S[j] = self.S[j],self.S[i]
-        # RC4 PRGA PART-2: self.S[(self.S[i]+self.S[j])%256]
-        return i,j;
 
     def rc4_KSA(self,key):
         key = [int(n) for n in key]
@@ -119,6 +76,14 @@ class Verifier():
         for i in range(256):
             j = (j+self.S[i]+key[i%key_len])%256
             self.S[i],self.S[j] = self.S[j],self.S[i]
+
+    def rc4_PRGA(self,i,j):
+        # RC4 PRGA(Pseudo-random generation algorithm) PART-1
+        i = (i+1)%256
+        j = (j+self.S[i])%256
+        self.S[i],self.S[j] = self.S[j],self.S[i]
+        # RC4 PRGA PART-2: self.S[(self.S[i]+self.S[j])%256]
+        return i,j;
 
     def get_checksum(self,key):
         self.get_origin()
@@ -163,6 +128,40 @@ class Verifier():
             k = (k+1)%8
 
         return checksum_vector
+
+    def dump(self):
+        memory_dump = []
+        for i in range(DUMP_PARTITION_CNT):
+            memory_dump.append(self.serial.readline()[:-2].decode('utf8'))
+        with open(MEMORY_ORIGIN,'w') as f:
+            f.writelines(','.join(memory_dump))
+
+    def check_origin(self):
+        if not os.path.isfile(MEMORY_ORIGIN):
+            self.request('dump')
+
+    def get_origin(self):
+        with open(MEMORY_ORIGIN,'r') as f:
+            self.origin = f.readline().split(',')
+        self.origin = [int(content) for content in self.origin]
+
+    def request(self, req):
+        if 'performance' == req:
+            self.check_origin()
+            for i in range(PERFORMANCE_MEASURE):
+                self.serial.write('verify'.encode('utf8'))
+                print(f"PROVER > {self.serial.readline().decode('utf8')}")
+                self.verify(performance=True)
+        elif 'verify' == req:
+            self.check_origin()
+            self.serial.write(req.encode('utf8'))
+            print(f"PROVER > {self.serial.readline().decode('utf8')}")
+            self.verify()
+        else:
+            self.serial.write(req.encode('utf8'))
+            print(f"PROVER > {self.serial.readline().decode('utf8')}")
+            if 'dump' == req:
+                self.dump()
 
     def run(self):
         while True:
