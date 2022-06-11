@@ -5,22 +5,29 @@ import sys
 import time
 import serial
 
-ITER_CNT = 664000
+# Due to the result of the Coupon Collector's Problem
+ITER_CNT = 664000 # ITER_CNT > (2 * 32000ln32000)
+
 BAUDRATE = 9600
 WRITE_TIMEOUT = 3
-MEMORY_ORIGIN = 'origin'
+
+# Verifier knows the expected memory contents
+MEMORY_ORIGIN = 'origin' # Prover's original memory contents
+
 DUMP_PARTITION_CNT = 7
 PERFORMANCE_MEASURE = 100
 PERFORMANCE_RESULT = 'verify_performance_result'
+
+# Prover verification time threshold
 VERIFY_TIME_THRESHOLD = 5.5
 
 REQUEST = {0:'quit',1:'ping',2:'verify',3:'dump',4:'performance'}
+
 
 class Verifier():
     def __init__(self, port):
         self.serial = serial.Serial(port=port,baudrate=BAUDRATE,write_timeout=WRITE_TIMEOUT)
         self.S = [0]*256
-        self.K = [0]*256
         self.origin = None
 
     def request(self, req):
@@ -58,62 +65,103 @@ class Verifier():
         self.origin = [int(content) for content in self.origin]
 
     def verify(self,performance=False):
+
+        # Use current timestamp for generating key(length=10)
         seed = str(int(time.time()))
         print(f"VERIFIER > KEY: {seed}")
+
+        # Send the key to the prover
         self.serial.write(seed.encode('utf8'))
         print(f"PROVER > {self.serial.readline().decode('utf8')}")
+
+        # Prover verification start
         start_time = time.time()
+
+        # Calculate the eight 8-bit checksum values
         checksum = self.get_checksum(seed)
         print('VERIFIER > CHECKSUM: ',checksum)
+
+        # Receive prover's verification result
         ret_checksum = self.serial.readline().decode('utf8').split(' ')
+
+        # Prover verification procedure finished
         elapsed_time = time.time()-start_time
+
         ret_checksum = [int(checksum) for checksum in ret_checksum[:-1]]
         print('PROVER > CHECKSUM: ',ret_checksum)
         print(f'VERIFIER > ELAPSED TIME {elapsed_time:.3f}')
+
+        # Check eight 8-bit checksum values and prover verification procedure time
         result = 'Verified' if checksum == ret_checksum and elapsed_time < VERIFY_TIME_THRESHOLD else 'Not Verified'
         print(f'\nVERIFIER > {result}.\n')
+
+        # For performance measure
         if performance:
             with open(PERFORMANCE_RESULT,'a') as f:
                 f.write(f'{result},{elapsed_time:.3f}\n');
 
-    def shuffle(self,i,j):
+    def rc4_PRGA(self,i,j):
+        # RC4 PRGA(Pseudo-random generation algorithm) PART-1
         i = (i+1)%256
         j = (j+self.S[i])%256
         self.S[i],self.S[j] = self.S[j],self.S[i]
+        # RC4 PRGA PART-2: self.S[(self.S[i]+self.S[j])%256]
         return i,j;
 
-    def initialize(self,key):
+    def rc4_KSA(self,key):
         key = [int(n) for n in key]
         key_len = len(key)
+
+        # RC4 KSA(Key-scheduling algorithm)
         for i in range(256):
             self.S[i] = i
-            self.K[i] = key[i%key_len]
         j = 0
         for i in range(256):
-            j = (j+self.S[i]+self.K[i])%256
+            j = (j+self.S[i]+key[i%key_len])%256
             self.S[i],self.S[j] = self.S[j],self.S[i]
 
     def get_checksum(self,key):
         self.get_origin()
         checksum_vector = []
-        self.initialize(key)
+
+        # RC4 Key-sheduling algorithm
+        self.rc4_KSA(key)
+
+        # Discard RC4[0] to RC4[255] for security reasons
         i, j = 0, 0
         for cnt in range(256):
-            i,j = self.shuffle(i,j)
+            i,j = self.rc4_PRGA(i,j)
+
+        # Checksum C[0] to C[7] are initialized with RC4[256] through RC4[263]
         for cnt in range(8):
-            i,j = self.shuffle(i,j)
+            i,j = self.rc4_PRGA(i,j)
             checksum_vector.append(self.S[(self.S[i]+self.S[j])%256])
-        i,j = self.shuffle(i,j)
+
+        # The initial value of RC4[i-1] is set to RC4[264]
+        i,j = self.rc4_PRGA(i,j)
         prev_rc4 = self.S[(self.S[i]+self.S[j])%256]
-        k = 7
+
+        # k be the current index into the checksum vector
+        k = 0
+
         for cnt in range(ITER_CNT):
-            i,j = self.shuffle(i,j)
+
+            # Get RC4[i]
+            i,j = self.rc4_PRGA(i,j)
             cur_rc4 = self.S[(self.S[i]+self.S[j])%256]
+
+            # Construct address for memory read
             addr = ((cur_rc4<<8)+checksum_vector[(k-1)%8])&0xffff
+
+            # Update checksum byte
             checksum_vector[k] = (checksum_vector[k]+(self.origin[addr]^checksum_vector[(k-2)%8]+prev_rc4))&0xff
             checksum_vector[k] = ((checksum_vector[k]<<1)|(checksum_vector[k]>>7))&0xff
+            
             prev_rc4 = cur_rc4
+
+            # Update checksum index
             k = (k+1)%8
+
         return checksum_vector
 
     def run(self):
